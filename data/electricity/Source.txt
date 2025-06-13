@@ -1,0 +1,2 @@
+시군구별, (용도업종별 or 계약종별), 월별 전력사용량이 있음
+https://home.kepco.co.kr/kepco/KO/ntcob/list.do?boardCd=BRD_000283&menuCd=FN05030105
