@@ -23,10 +23,25 @@ all_temperature_data <- all_temperature_data %>%
   mutate(일시 = as.POSIXct(일시, format = "%Y-%m-%d %H:%M")) %>%
   arrange(지점, 일시)
 
+
+# 기온 데이터의 지점 >> 전력 데이터의 지역으로 변환 #
+power_ma_regionMapping <- readr::read_csv("./SGG_mapping.csv", locale = locale(encoding = "euc-kr")) %>%
+  rename(지점명 = 기상청지역)
+
+
+all_temperature_data_rename <- all_temperature_data %>%
+  left_join(power_ma_regionMapping, by = c("지점명"))
+
+
+all_temperature_data_rename %>%
+  group_by(한전_시도, 한전_시군구) %>%
+  summarise(지점명_개수 = n_distinct(지점명), .groups = "drop") %>%
+  filter(지점명_개수 > 1)
+
 ### Kernel
 
 # s값 표준화 포함
-temp_data_std <- all_temperature_data %>%
+temp_data_std <- all_temperature_data_rename %>%
   mutate(
     s = (`기온(°C)` + 20) / 60,
     year = as.integer(format(일시, "%Y")),
@@ -103,14 +118,63 @@ kernel_by_jym <- temp_data_std %>%
 
 
 
+
+
+
+
 #################################################################
 ###########################  regression   ###########################
 #################################################################
 
-## S grid 생성 ##
-s_grid <- seq(0, 1, length.out = 200)   # 표준화된 기온의 격자
-ds <- diff(s_grid)[1]                  # 간격
+# 1. 표준화 기온 그리드
+s_grid <- seq(0, 1, length.out = 200)
+ds <- diff(s_grid)[1]
+
+# 2. 커널 → 적분 벡터
+kernel_df <- map2_dfr(kernel_by_jym, names(kernel_by_jym), function(kde, label) {
+  f_s <- approx(kde$x, kde$y, xout = s_grid, rule = 2)$y
+  
+  tibble(
+    key = label,
+    x1 = sum(s_grid * f_s) * ds,
+    x2 = sum(s_grid^2 * f_s) * ds,
+    x3 = sum(cos(2 * pi * s_grid) * f_s) * ds,
+    x4 = sum(sin(2 * pi * s_grid) * f_s) * ds
+  )
+}) %>%
+  mutate(
+    시군구 = str_extract(key, "^[^_]+"),
+    연월 = str_extract(key, "\\d{6}"),
+    연도 = as.integer(substr(연월, 1, 4)),
+    월 = as.integer(substr(연월, 5, 6))
+  ) %>%
+  select(-key)
+
+
+
+###############################################################################
+###########################  Moving Average power   ###########################
+###############################################################################
+power_ma <- readr::read_csv("../SGG_elec/power_ma.csv", locale = locale(encoding = "euc-kr"))
+
+
+
+# 병합: 시군구 + 연도 + 월 기준
+reg_df <- power_ma %>%
+  rename(시군구 = 시군구, 연도 = 연도, 월 = 월) %>%
+  inner_join(kernel_df, by = c("시군구", "연도", "월")) %>%
+  mutate(
+    T_total = max(t),
+    t_T = t / T_total,
+    z1 = t_T * x1,
+    z2 = t_T * x2,
+    z3 = t_T * x3,
+    z4 = t_T * x4
+  ) %>%
+  filter(!is.na(y_ts))
 
 
 
 
+model <- lm(y_ts ~ x1 + x2 + x3 + x4 + z1 + z2 + z3 + z4, data = reg_df)
+summary(model)
