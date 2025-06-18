@@ -1,0 +1,46 @@
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(zoo)
+
+# 📁 1. 엑셀 파일들이 들어있는 폴더 경로
+folder_path <- "."  # ← 실제 폴더 경로로 수정하세요
+
+# 📄 2. 해당 폴더 내 모든 파일 목록
+file_list <- list.files(path = folder_path, pattern = "\\.xlsx$", full.names = TRUE)
+
+
+# 🧹 3. 단일 파일 처리 함수
+process_file <- function(file) {
+  year <- str_extract(file, "20\\d{2}")  # 연도 추출
+  
+  read_excel(file, sheet = "계약종별", skip = 2) %>%   # ✅ 시트 지정
+    select(연도, 시도, 시군구, 계약종별, `1월`:`12월`) %>%
+    filter(계약종별 %in% c("일반용", "주택용")) %>%
+    pivot_longer(cols = `1월`:`12월`, names_to = "월", values_to = "사용량(MWh)") %>%
+    mutate(
+      연도 = as.integer(year),
+      월 = str_remove(월, "월") %>% as.integer()
+    )
+}
+
+# 📊 4. 모든 파일을 병합하여 하나의 데이터프레임으로
+power_data <- map_dfr(file_list, process_file)
+
+
+# MA 계산.
+power_ma <- power_data %>%
+  arrange(시도, 시군구, 계약종별, 연도, 월) %>%
+  group_by(시도, 시군구, 계약종별) %>%
+  mutate(
+    t = row_number(),
+    MA12 = zoo::rollmean(`사용량(MWh)`, k = 12, fill = NA, align = "center"),
+    y_ts = log(`사용량(MWh)` / MA12)
+  ) %>%
+  ungroup()
+
+
+#
+write.csv(power_ma, "power_ma.csv", row.names = FALSE, fileEncoding = "CP949")
