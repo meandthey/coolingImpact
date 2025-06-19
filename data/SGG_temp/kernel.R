@@ -25,7 +25,7 @@ all_temperature_data <- all_temperature_data %>%
 
 
 # 기온 데이터의 지점 >> 전력 데이터의 지역으로 변환 #
-power_ma_regionMapping <- readr::read_csv("./SGG_mapping.csv", locale = locale(encoding = "euc-kr")) %>%
+power_ma_regionMapping <- readr::read_csv("./mappingRegion/SGG_mapping.csv", locale = locale(encoding = "euc-kr")) %>%
   rename(지점명 = 기상청지역)
 
 
@@ -37,6 +37,11 @@ all_temperature_data_rename %>%
   group_by(한전_시도, 한전_시군구) %>%
   summarise(지점명_개수 = n_distinct(지점명), .groups = "drop") %>%
   filter(지점명_개수 > 1)
+
+whoNA <- all_temperature_data_rename %>% filter(is.na(한전_시군구)) 
+
+list <- all_temperature_data_rename %>% filter(한전_시군구 == "강릉시")
+unique(list$지점명)
 
 ### Kernel
 
