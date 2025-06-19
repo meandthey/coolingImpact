@@ -27,7 +27,21 @@ process_file <- function(file) {
 }
 
 # 📊 4. 모든 파일을 병합하여 하나의 데이터프레임으로
-power_data <- map_dfr(file_list, process_file)
+power_data <- map_dfr(file_list, process_file) %>%
+  mutate(`사용량(MWh)` = case_when(
+    
+    연도 >= 2014 ~ `사용량(MWh)` / 1000,
+    TRUE ~ `사용량(MWh)`
+    
+  )) %>%
+  mutate(`사용량(MWh)` = case_when(
+    
+    `사용량(MWh)` < 0 ~ `사용량(MWh)` * c(-1), 
+    TRUE ~ `사용량(MWh)`
+    
+  ))
+
+
 
 
 # MA 계산.
@@ -41,6 +55,10 @@ power_ma <- power_data %>%
   ) %>%
   ungroup()
 
+power_ma_trim <- power_ma %>%
+  filter(abs(y_ts) < 1)
+
+
 
 #
-write.csv(power_ma, "power_ma.csv", row.names = FALSE, fileEncoding = "CP949")
+write.csv(power_ma_trim, "power_ma_trim.csv", row.names = FALSE, fileEncoding = "CP949")

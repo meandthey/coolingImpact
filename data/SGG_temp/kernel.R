@@ -33,15 +33,15 @@ all_temperature_data_rename <- all_temperature_data %>%
   left_join(power_ma_regionMapping, by = c("지점명"))
 
 
-all_temperature_data_rename %>%
-  group_by(한전_시도, 한전_시군구) %>%
-  summarise(지점명_개수 = n_distinct(지점명), .groups = "drop") %>%
-  filter(지점명_개수 > 1)
-
-whoNA <- all_temperature_data_rename %>% filter(is.na(한전_시군구)) 
-
-list <- all_temperature_data_rename %>% filter(한전_시군구 == "강릉시")
-unique(list$지점명)
+# all_temperature_data_rename %>%
+#   group_by(한전_시도, 한전_시군구) %>%
+#   summarise(지점명_개수 = n_distinct(지점명), .groups = "drop") %>%
+#   filter(지점명_개수 > 1)
+# 
+# whoNA <- all_temperature_data_rename %>% filter(is.na(한전_시군구)) 
+# 
+# list <- all_temperature_data_rename %>% filter(한전_시군구 == "강릉시")
+# unique(list$지점명)
 
 ### Kernel
 
@@ -160,7 +160,7 @@ kernel_df <- map2_dfr(kernel_by_jym, names(kernel_by_jym), function(kde, label) 
 ###############################################################################
 ###########################  Moving Average power   ###########################
 ###############################################################################
-power_ma <- readr::read_csv("../SGG_elec/power_ma.csv", locale = locale(encoding = "euc-kr"))
+power_ma <- readr::read_csv("../SGG_elec/power_ma_trim.csv", locale = locale(encoding = "euc-kr"))
 
 
 
@@ -171,6 +171,7 @@ reg_df <- power_ma %>%
   mutate(
     T_total = max(t),
     t_T = t / T_total,
+    z0 = t_T,
     z1 = t_T * x1,
     z2 = t_T * x2,
     z3 = t_T * x3,
@@ -181,5 +182,175 @@ reg_df <- power_ma %>%
 
 
 
-model <- lm(y_ts ~ x1 + x2 + x3 + x4 + z1 + z2 + z3 + z4, data = reg_df)
+
+model <- lm(y_ts ~ x1 + x2 + x3 + x4 + z0 + z1 + z2 + z3 + z4, data = reg_df)
 summary(model)
+
+
+# model_simple <- lm(y_ts ~ x1 + x2 + x3 + x4, data = reg_df)
+# summary(model_simple)
+
+
+###############################################################################
+###########################  k_(t,s): 기온반응함수   ###########################
+###############################################################################
+# 기존 s_grid
+s_grid <- seq(0, 1, length.out = 200)
+
+# 변환: 실제 기온 (섭씨)
+T_C <- 60 * s_grid - 20
+
+# 계수 추출
+coefs <- coef(model)
+t_T <- 0.5  # 예: 중간 시점
+
+# 반응함수 계산
+k_t_s <- coefs["(Intercept)"] +
+  coefs["x1"] * s_grid +
+  coefs["x2"] * s_grid^2 +
+  coefs["x3"] * cos(2 * pi * s_grid) +
+  coefs["x4"] * sin(2 * pi * s_grid) +
+  t_T * (
+    coefs["z0"] +
+      coefs["z1"] * s_grid +
+      coefs["z2"] * cos(2 * pi * s_grid) +
+      coefs["z3"] * sin(2 * pi * s_grid) +
+      coefs["z4"] * s_grid^2
+  )
+
+# 시각화 (기온축으로)
+plot_df <- tibble(T_C = T_C, k_ts = k_t_s)
+
+ggplot(plot_df, aes(x = T_C, y = k_ts)) +
+  geom_line(size = 1) +
+  labs(
+    title = "기온 반응함수 k_t(s), x축: 실제 기온(℃)",
+    x = "기온 (°C)",
+    y = "반응도"
+  ) +
+  theme_minimal()
+
+
+
+###############################################################################
+###########################  k_(t,s): 기온반응함수 (2)   ###########################
+###############################################################################
+
+# 추정된 계수
+coefs <- coef(model)
+T_total <- max(reg_df$t)
+s_grid <- seq(0, 1, length.out = 200)
+T_C <- 60 * s_grid - 20  # 실제 기온
+
+# 시점 예: 2004년, 2010년, 2016년
+selected_years <- c(2010, 2015, 2020)
+
+# 각 연도에 해당하는 평균 t값 계산
+t_lookup <- reg_df %>%
+  group_by(연도) %>%
+  summarise(t_avg = mean(t)) %>%
+  filter(연도 %in% selected_years)
+
+# 반응함수 생성
+plot_df <- t_lookup %>%
+  mutate(t_T = t_avg / T_total) %>%
+  rowwise() %>%
+  mutate(data = list(tibble(
+    T_C = T_C,
+    k_ts = coefs["(Intercept)"] +
+      coefs["x1"] * s_grid +
+      coefs["x2"] * s_grid^2 +
+      coefs["x3"] * cos(2 * pi * s_grid) +
+      coefs["x4"] * sin(2 * pi * s_grid) +
+      t_T * (
+        coefs["z0"] +
+          coefs["z1"] * s_grid +
+          coefs["z2"] * cos(2 * pi * s_grid) +
+          coefs["z3"] * sin(2 * pi * s_grid) +
+          coefs["z4"] * s_grid^2
+      ),
+    연도 = 연도
+  ))) %>%
+  pull(data) %>%
+  bind_rows()
+
+ggplot(plot_df, aes(x = T_C, y = k_ts, group = 연도, color = as.factor(연도), linetype = as.factor(연도))) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("gray", "black", "lightgreen")) +
+  scale_linetype_manual(values = c("solid", "dashed", "solid")) +
+  labs(
+    title = "시점별 기온 반응함수 비교",
+    x = "기온 (°C)",
+    y = "반응도",
+    color = "연도",
+    linetype = "연도"
+  ) +
+  coord_cartesian(xlim = c(-10, 35)) +
+  theme_minimal()
+
+
+
+
+
+##############################
+# t_T_values <- c(0.1, 0.5, 0.9)
+# 
+# plot_df <- map_dfr(t_T_values, function(t_T) {
+#   tibble(
+#     T_C = 60 * s_grid - 20,
+#     k_ts = coefs["(Intercept)"] +
+#       coefs["x1"] * s_grid +
+#       coefs["x2"] * s_grid^2 +
+#       coefs["x3"] * cos(2 * pi * s_grid) +
+#       coefs["x4"] * sin(2 * pi * s_grid) +
+#       t_T * (
+#         coefs["z0"] +
+#           coefs["z1"] * s_grid +
+#           coefs["z2"] * cos(2 * pi * s_grid) +
+#           coefs["z3"] * sin(2 * pi * s_grid) +
+#           coefs["z4"] * s_grid^2
+#       ),
+#     t_T = t_T
+#   )
+# })
+# 
+# ggplot(plot_df, aes(x = T_C, y = k_ts, color = as.factor(t_T))) +
+#   geom_line(size = 1.2) +
+#   labs(title = "기온 반응함수: 시점(t/T)별 비교",
+#        x = "기온 (°C)", y = "반응도", color = "t/T") +
+#   theme_minimal()
+# 
+# 
+
+
+t_T_values <- c(0.1, 0.5, 0.9)
+
+plot_df <- map_dfr(t_T_values, function(t_T) {
+  tibble(
+    T_C = 60 * s_grid - 20,
+    k_ts = coefs["(Intercept)"] +
+      coefs["x1"] * s_grid +
+      coefs["x2"] * s_grid^2 +
+      coefs["x3"] * cos(2 * pi * s_grid) +
+      coefs["x4"] * sin(2 * pi * s_grid) +
+      t_T * (
+        coefs["z0"] +
+          coefs["z1"] * s_grid +
+          coefs["z2"] * cos(2 * pi * s_grid) +
+          coefs["z3"] * sin(2 * pi * s_grid) +
+          coefs["z4"] * s_grid^2
+      ),
+    t_T = paste0("t/T=", t_T)
+  )
+})
+
+ggplot(plot_df, aes(x = T_C, y = k_ts, color = t_T)) +
+  geom_line(size = 1.2) +
+  labs(
+    title = "기온 반응함수 k_t(s): 시점(t/T)별 비교",
+    x = "기온 (°C)",
+    y = "반응도",
+    color = "시점"
+  ) +
+  theme_minimal()
+
