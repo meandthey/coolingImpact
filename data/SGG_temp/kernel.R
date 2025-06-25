@@ -223,74 +223,74 @@ model_coefficients <- map_dfr(
 ###############################################################################
 # 시각화 
 ###############################################################################
-# 저장 루트 폴더
-root_folder <- "./reaction_curves_realtemp"
-
-# 표준화 기온과 실제 기온
-s_grid <- seq(0, 1, length.out = 200)
-T_grid <- s_grid * 60 - 20
-
-# 그래프 생성 및 저장
-walk2(
-  region_type_models,
-  names(region_type_models),
-  function(model, region_type) {
-    coefs <- coef(model)
-    if (!all(c("x1", "x2", "x3", "x4") %in% names(coefs))) return(NULL)
-    
-    # 반응함수 계산
-    f_s <- coefs["x1"] * s_grid +
-      coefs["x2"] * s_grid^2 +
-      coefs["x3"] * cos(2 * pi * s_grid) +
-      coefs["x4"] * sin(2 * pi * s_grid)
-    
-    df_plot <- tibble(temp_C = T_grid, f_s = f_s)
-    
-    # 계약종별 분리
-    parts <- str_split(region_type, "_", simplify = TRUE)
-    if (ncol(parts) < 2) return(NULL)
-    시군구 <- parts[1]
-    계약종별 <- parts[2]
-    
-    # 곡선 형태 판별 (bell vs U)
-    f_min <- min(f_s, na.rm = TRUE)
-    f_max <- max(f_s, na.rm = TRUE)
-    center_val <- f_s[which.min(abs(T_grid))]  # T=0°C 근처 값
-    shape <- if ((f_s[1] > center_val) & (f_s[length(f_s)] > center_val)) {
-      "U자형"
-    } else if ((f_s[1] < center_val) & (f_s[length(f_s)] < center_val)) {
-      "Bell형"
-    } else {
-      "기타"
-    }
-    
-    # 폴더 경로 구성
-    subfolder <- file.path(root_folder, 계약종별, shape)
-    if (!dir.exists(subfolder)) dir.create(subfolder, recursive = TRUE)
-    
-    # 안전한 파일명
-    filename_safe <- str_replace_all(region_type, "[^[:alnum:]_]", "_")
-    output_file <- file.path(subfolder, paste0(filename_safe, ".png"))
-    
-    # 그래프 저장
-    g <- ggplot(df_plot, aes(x = temp_C, y = f_s)) +
-      geom_line(color = "darkblue", size = 1) +
-      labs(
-        title = paste0("기온 반응함수: ", region_type, " [", shape, "]"),
-        x = "기온 (°C)",
-        y = "반응함수 f(T)"
-      ) +
-      theme_bw(base_size = 12) +
-      theme(
-        panel.background = element_rect(fill = "white"),
-        plot.background = element_rect(fill = "white", color = NA),
-        panel.grid.major = element_line(color = "gray90"),
-        panel.grid.minor = element_blank()
-      )
-    
-    ggsave(output_file, plot = g, width = 6, height = 4, dpi = 300)
-  }
-)
+# # 저장 루트 폴더
+# root_folder <- "./reaction_curves_realtemp"
+# 
+# # 표준화 기온과 실제 기온
+# s_grid <- seq(0, 1, length.out = 200)
+# T_grid <- s_grid * 60 - 20
+# 
+# # 그래프 생성 및 저장
+# walk2(
+#   region_type_models,
+#   names(region_type_models),
+#   function(model, region_type) {
+#     coefs <- coef(model)
+#     if (!all(c("x1", "x2", "x3", "x4") %in% names(coefs))) return(NULL)
+#     
+#     # 반응함수 계산
+#     f_s <- coefs["x1"] * s_grid +
+#       coefs["x2"] * s_grid^2 +
+#       coefs["x3"] * cos(2 * pi * s_grid) +
+#       coefs["x4"] * sin(2 * pi * s_grid)
+#     
+#     df_plot <- tibble(temp_C = T_grid, f_s = f_s)
+#     
+#     # 계약종별 분리
+#     parts <- str_split(region_type, "_", simplify = TRUE)
+#     if (ncol(parts) < 2) return(NULL)
+#     시군구 <- parts[1]
+#     계약종별 <- parts[2]
+#     
+#     # 곡선 형태 판별 (bell vs U)
+#     f_min <- min(f_s, na.rm = TRUE)
+#     f_max <- max(f_s, na.rm = TRUE)
+#     center_val <- f_s[which.min(abs(T_grid))]  # T=0°C 근처 값
+#     shape <- if ((f_s[1] > center_val) & (f_s[length(f_s)] > center_val)) {
+#       "U자형"
+#     } else if ((f_s[1] < center_val) & (f_s[length(f_s)] < center_val)) {
+#       "Bell형"
+#     } else {
+#       "기타"
+#     }
+#     
+#     # 폴더 경로 구성
+#     subfolder <- file.path(root_folder, 계약종별, shape)
+#     if (!dir.exists(subfolder)) dir.create(subfolder, recursive = TRUE)
+#     
+#     # 안전한 파일명
+#     filename_safe <- str_replace_all(region_type, "[^[:alnum:]_]", "_")
+#     output_file <- file.path(subfolder, paste0(filename_safe, ".png"))
+#     
+#     # 그래프 저장
+#     g <- ggplot(df_plot, aes(x = temp_C, y = f_s)) +
+#       geom_line(color = "darkblue", size = 1) +
+#       labs(
+#         title = paste0("기온 반응함수: ", region_type, " [", shape, "]"),
+#         x = "기온 (°C)",
+#         y = "반응함수 f(T)"
+#       ) +
+#       theme_bw(base_size = 12) +
+#       theme(
+#         panel.background = element_rect(fill = "white"),
+#         plot.background = element_rect(fill = "white", color = NA),
+#         panel.grid.major = element_line(color = "gray90"),
+#         panel.grid.minor = element_blank()
+#       )
+#     
+#     ggsave(output_file, plot = g, width = 6, height = 4, dpi = 300)
+#   }
+# )
 
 ###############################################################################
 # 결과 요약 테이블
@@ -431,16 +431,52 @@ te_components_df <- map_dfr(
   }
 )
 
+####################
+## Power CPI Data ##
+####################
+powerCPI_byMonth <- readr::read_csv("../CPI/real_powerCPI.csv", locale = locale(encoding = "euc-kr"))
 
 
-matched_ids <- map_chr(names(kernel_by_jym), function(full_id) {
-  base_id <- str_replace(full_id, "_\\d{6}$", "")
-  if (base_id %in% names(region_type_models_filtered)) return(base_id)
-  else return(NA_character_)
-})
-
-table(is.na(matched_ids))
+###############
+## GRDP Data ##
+###############
+grdp_byMonth <- readr::read_csv("../GRDP/grdp_monthly.csv", locale = locale(encoding = "euc-kr"))
 
 
-test_id <- "서울특별시_일반용_202001"
-kernel_by_jym_final[[test_id]]  # 이게 존재하는가?
+############################
+## Power Consumption Data ##
+############################
+file_list <- list.files(path = "../SGG_elec/", pattern = "\\.xlsx$", full.names = TRUE)
+
+# 1. 단일 파일 처리 함수
+process_file <- function(file) {
+  year <- str_extract(file, "20\\d{2}")  # 연도 추출
+  
+  read_excel(file, sheet = "계약종별", skip = 2) %>%   # ✅ 시트 지정
+    select(연도, 시도, 시군구, 계약종별, `1월`:`12월`) %>%
+    filter(계약종별 %in% c("일반용", "주택용")) %>%
+    pivot_longer(cols = `1월`:`12월`, names_to = "월", values_to = "사용량(MWh)") %>%
+    mutate(
+      연도 = as.integer(year),
+      월 = str_remove(월, "월") %>% as.integer()
+    )
+}
+
+# 2. 모든 파일을 병합하여 하나의 데이터프레임으로
+power_data <- map_dfr(file_list, process_file) %>%
+  mutate(`사용량(MWh)` = case_when(
+    
+    연도 >= 2014 ~ `사용량(MWh)` / 1000,
+    TRUE ~ `사용량(MWh)`
+    
+  )) %>%
+  mutate(`사용량(MWh)` = case_when(
+    
+    `사용량(MWh)` < 0 ~ `사용량(MWh)` * c(-1), 
+    TRUE ~ `사용량(MWh)`
+    
+  ))
+
+
+
+
