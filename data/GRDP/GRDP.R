@@ -16,10 +16,19 @@ index_raw <- read_excel("시도_산업별_광공업생산지수_2020100__2025062
 grdp_long <- grdp_raw %>%
   slice(-1) %>%
   pivot_longer(cols = c(-1, -2), names_to = "year", values_to = "grdp") %>%
-  rename(시도 = `행정구역별(1)`, 시군구 = `행정구역별(2)`) %>%
   mutate(year = as.integer(year),
-         unit = "백만원_2015년 기준가격",
-         grdp = as.numeric(grdp),
+         grdp = as.numeric(grdp)) %>%
+  mutate(`행정구역별(2)` = case_when(
+    
+    `행정구역별(1)` == "충청북도"&`행정구역별(2)` == "통합청주시" ~ "청주시",
+    `행정구역별(1)` == "충청북도"&`행정구역별(2)` == "청원군" ~ "청주시",
+    `행정구역별(1)` == "경상남도"&`행정구역별(2)` == "통합창원시" ~ "창원시",
+    TRUE ~ `행정구역별(2)`
+  )) %>%
+  mutate(grdp = replace_na(grdp,0)) %>%
+  group_by(`행정구역별(1)`, `행정구역별(2)`, year) %>% summarize(grdp = sum(grdp)) %>%
+  rename(시도 = `행정구역별(1)`, 시군구 = `행정구역별(2)`) %>%
+  mutate(unit = "백만원_2015년 기준가격",
          시도_시군구 = paste(시도, 시군구, sep = "_"))
 
 # 3. 생산지수: 시도, 연도, 월별 인덱스
@@ -61,5 +70,5 @@ grdp_monthly <- grdp_long %>%
 grdp_monthly <- grdp_monthly %>%
   arrange(시도, 시군구, year, month)
 
-# 결과 예시 출력
-print(head(grdp_monthly, 12))
+# 결과 
+#write.csv(grdp_monthly, "grdp_monthly.csv", fileEncoding = 'EUC-kr')

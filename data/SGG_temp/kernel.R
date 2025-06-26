@@ -7,6 +7,28 @@ library(ggplot2)
 library(stringr)
 library(broom)
 library(tidyr)
+library(readxl)
+library(timeDate)
+library(lubridate)
+
+## sido name ##
+
+# 시도 이름 리스트
+sido_list <- c("서울특별시", "부산광역시", "대구광역시", "인천광역시",
+               "광주광역시", "대전광역시", "울산광역시", "세종특별자치시",
+               "경기도", "강원도", "충청북도", "충청남도",
+               "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도")
+
+sido_mapping <- tibble(
+  old = c("강원특별자치도", "전북특별자치도", "경기도", "서울특별시", "부산광역시",
+          "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시",
+          "세종특별자치시", "충청북도", "충청남도", "전라남도", "전라북도",
+          "경상북도", "경상남도", "제주특별자치도"),
+  new = c("강원도", "전라북도", "경기도", "서울특별시", "부산광역시",
+          "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시",
+          "세종특별자치시", "충청북도", "충청남도", "전라남도", "전라북도",
+          "경상북도", "경상남도", "제주특별자치도")
+)
 # 1. 폴더 경로 지정
 folder_path <- "./tempData/"  # 현재 작업 디렉토리 (필요시 수정)
 
@@ -429,7 +451,12 @@ te_components_df <- map_dfr(
         월 = as.integer(substr(연월, 5, 6))
       )
   }
-)
+) %>%
+  rename(시도시군구 = 시군구) %>%
+  mutate(
+    시도 = str_extract(시도시군구, paste0("^(", paste(sido_list, collapse = "|"), ")")),
+    시군구 = str_remove(시도시군구, paste0("^(", paste(sido_list, collapse = "|"), ")"))
+  )
 
 ####################
 ## Power CPI Data ##
@@ -452,7 +479,7 @@ file_list <- list.files(path = "../SGG_elec/", pattern = "\\.xlsx$", full.names 
 process_file <- function(file) {
   year <- str_extract(file, "20\\d{2}")  # 연도 추출
   
-  read_excel(file, sheet = "계약종별", skip = 2) %>%   # ✅ 시트 지정
+  readxl::read_excel(file, sheet = "계약종별", skip = 2) %>%   # ✅ 시트 지정
     select(연도, 시도, 시군구, 계약종별, `1월`:`12월`) %>%
     filter(계약종별 %in% c("일반용", "주택용")) %>%
     pivot_longer(cols = `1월`:`12월`, names_to = "월", values_to = "사용량(MWh)") %>%
@@ -476,6 +503,185 @@ power_data <- map_dfr(file_list, process_file) %>%
     TRUE ~ `사용량(MWh)`
     
   ))
+
+######################################
+## MED: Monthly Effective Day  Data ##
+######################################
+
+# 예시: 2004년 1월부터 2024년 12월까지의 유효일수 계산
+dates <- seq.Date(as.Date("2004-01-01"), as.Date("2024-12-31"), by = "day")
+calendar <- tibble(
+  date = dates,
+  year = year(dates),
+  month = month(dates),
+  wday = wday(dates, label = TRUE),
+  holiday = isHoliday(as.timeDate(dates), "KR")  # 한국 공휴일
+)
+
+# 유효일 가중치 예시 (일반용)
+calendar <- calendar %>%
+  mutate(weight = case_when(
+    holiday ~ 0.84,
+    wday %in% c("Sat") ~ 0.93,
+    wday %in% c("Sun") ~ 0.84,
+    TRUE ~ 1.00
+  ))
+
+med_monthly <- calendar %>%
+  group_by(year, month) %>%
+  summarise(MED = sum(weight), .groups = "drop") %>%
+  rename(연 = year, 월 = month) %>%
+  mutate(연월 = paste0(연, str_pad(월, 2, pad = "0")))
+
+
+
+##############################
+########## Renamed ##########
+##############################
+# 시도, 시군구, 시도시군구, 
+# 계약종,
+# 연, 월, 연월
+te_components_df_Renamed <- te_components_df %>%
+  rename(계약종 = 계약종별,
+         연 = 연도)
+
+power_data_Renamed <- power_data %>%
+  mutate(시도시군구 = paste0(시도, 시군구),
+         연월 = paste0(연도, str_pad(월, 2, pad = "0"))) %>%
+  rename(계약종 = 계약종별,
+         연 = 연도)
+
+powerCPI_byMonth_Renamed <- powerCPI_byMonth %>%
+  rename(연 = year,
+         월 = month) %>%
+  mutate(연월 = paste0(연, str_pad(월, 2, pad = "0")))
+
+  
+grdp_byMonth_Renamed <- grdp_byMonth %>%
+  left_join(sido_mapping, by = c("시도" = "old")) %>%
+  mutate(시도 = coalesce(new, 시도)) %>%  # new가 NA면 원래 값 유지
+  select(-new) %>%
+  rename(연 = year, 월 = month) %>%
+  mutate(시도시군구 = paste0(시도, 시군구),
+         연월 = paste0(연, str_pad(월, 2, pad = "0")))
+
+
+
+###################################
+########## All left_join ##########
+###################################
+allData <- te_components_df_Renamed %>%
+  left_join(power_data_Renamed, by = c("시도", "시군구", "시도시군구", "계약종", "연", "월", "연월")) %>%
+  left_join(grdp_byMonth_Renamed, by = c("시도", "시군구", "시도시군구",         "연", "월", "연월")) %>%
+  left_join(powerCPI_byMonth_Renamed, by = c("시도", "연", "월", "연월")) %>%
+  left_join(med_monthly, by = c("연","월","연월")) %>%
+  drop_na() %>%
+  filter(grdp_month != 0) %>%
+  mutate(log_demand_per_day = log(`사용량(MWh)` / MED))
+
+
+######################################
+########## Final Regression ##########
+######################################
+
+##############
+# Simple OLS #
+##############
+
+# [1]
+# TE_(c), TE_(h) seperate version
+
+# 1. id별 그룹화 후 회귀 실행
+models_split_TE <- allData %>%
+  group_by(id) %>%
+  group_split() %>%
+  set_names(map_chr(., ~ unique(.x$id))) %>%
+  map(~ lm(log_demand_per_day ~ log(grdp_month) + log(real_powerCPI) + TE_cooling + TE_heating, data = .x))
+
+# 2. 결과 요약
+models_split_TE_coeffs <- map_dfr(models_split_TE, tidy, .id = "id")
+models_split_TE_summary <- map_dfr(models_split_TE, glance, .id = "id")
+
+
+# 3. 각 계수 추출 및 조건 필터링
+grdp_valid <- models_split_TE_coeffs %>%
+  filter(term == "log(grdp_month)", estimate > 0, p.value < 0.05) %>%
+  select(id)
+
+price_valid <- models_split_TE_coeffs %>%
+  filter(term == "log(real_powerCPI)", estimate < 0, p.value < 0.05) %>%
+  select(id)
+
+cooling_valid <- models_split_TE_coeffs %>%
+  filter(term == "TE_cooling", estimate > 0, p.value < 0.05) %>%
+  select(id)
+
+heating_valid <- models_split_TE_coeffs %>%
+  filter(term == "TE_heating", estimate > 0, p.value < 0.05) %>%
+  select(id)
+
+# 3. 전체 회귀 적합도 조건 (설명력 & 유의성)
+summary_valid <- models_split_TE_summary %>%
+  filter(adj.r.squared >= 0.4, p.value < 0.05) %>%
+  select(id)
+
+# 4. 위 모든 조건을 만족하는 id만 교집합 추출
+final_valid_ids <- Reduce(intersect, list(
+  grdp_valid$id,
+  price_valid$id,
+  cooling_valid$id,
+  heating_valid$id,
+  summary_valid$id
+))
+
+
+
+######################################
+# Calculate Cooling & Heating Demand #
+######################################
+
+
+# 냉방수요/난방수요 계산 함수
+calculate_cooling_heating_demand <- function(df, model) {
+  coefs <- coef(model)
+  
+  # 1. 회귀모형으로부터 예측값 계산 (진짜 y_hat)
+  y_hat <- predict(model, newdata = df)
+  
+  # 2. 기온 기준분포에서의 baseline y 예측값 (TE = 0 가정)
+  y_bar <- coefs["(Intercept)"] +
+    coefs["log(grdp_month)"] * log(df$grdp_month) +
+    coefs["log(real_powerCPI)"] * log(df$real_powerCPI)
+  
+  # 3. 기온효과로 인한 초과 수요 계산
+  delta_y <- exp(y_hat) - exp(y_bar)
+  
+  # 4. 냉/난방 비율 계산을 위한 TE 합
+  total_TE <- df$TE_cooling + df$TE_heating
+  total_TE[total_TE == 0] <- NA  # 0으로 나누기 방지
+  
+  # 5. 냉/난방 수요 계산
+  cooling <- df$MED * delta_y * (df$TE_cooling / total_TE)
+  heating <- df$MED * delta_y * (df$TE_heating / total_TE)
+  
+  # 6. 최종 테이블 반환
+  tibble(
+    id = df$id[1],
+    연 = df$연,
+    월 = df$월,
+    baseline_demand = exp(y_bar) * df$MED,
+    cooling_demand = cooling,
+    heating_demand = heating,
+    total_predicted = exp(y_hat) * df$MED
+  )
+}
+
+# 전체 id에 적용
+results_demand <- map_dfr(names(models_split_TE), function(id) {
+  model <- models_split_TE[[id]]
+  df <- allData %>% filter(id == !!id)
+  calculate_cooling_heating_demand(df, model)
+})
 
 
 
