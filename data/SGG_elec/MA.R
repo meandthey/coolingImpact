@@ -55,8 +55,8 @@ power_ma <- power_data %>%
   ) %>%
   ungroup()
 
-power_ma_trim <- power_ma %>%
-  filter(abs(y_ts) < 1)
+# power_ma_trim <- power_ma %>%
+#   filter(abs(y_ts) < 1)
 
 
 
